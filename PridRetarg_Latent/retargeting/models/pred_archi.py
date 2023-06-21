@@ -4,13 +4,13 @@ import torch
 from models.utils import GAN_loss, ImagePool, get_ee, Criterion_EE, Eval_Criterion, Criterion_EE_2
 from models.base_model import BaseModel
 from option_parser import try_mkdir
-from modlels.pred_resnet import PredNet
+from models.pred_resnet import PredNet
 
 import os
 
-class predictvie_model(BaseModel):
+class Pred_model(BaseModel):
     def __init__(self, args, character_names, dataset):
-        super(predictvie_model, self).__init__(args)
+        super(Pred_model, self).__init__(args)
         self.character_names = character_names
         self.dataset = dataset
         self.n_topology = len(character_names)
@@ -50,16 +50,18 @@ class predictvie_model(BaseModel):
 
 
     def forward(self):
+        print("forward")
         motion, offset_idx = self.motions_input[0]
         motion = motion.to(self.device)
-        self.offset_repr = self.models[0].static_encoder(self.dataset.offsets[0])
+        self.offset_repr = self.pretrained_models[0].static_encoder(self.dataset.offsets[0])
 
         motion_denorm = self.dataset.denorm(0, offset_idx, motion)
         offsets = [self.offset_repr[p][offset_idx] for p in range(self.args.num_layers + 1)]
-        latent, res = self.models[0].auto_encoder(motion, offsets)
-        
+        latent, res = self.pretrained_models[0].auto_encoder(motion, offsets)
+
         # predict latent
-        self.latent_predictor.set_input(latent,)
+        self.latent_predictor.set_input(latent)
+        self.latent_predictor.forward()
 
 
     def backward(self):
@@ -67,11 +69,12 @@ class predictvie_model(BaseModel):
 
 
     def optimize_parameters(self):
-        pass
+        self.forward()
 
 
     def save(self):
-        self.Ea.save(os.path.join(self.model_save_dir, 'predict'), self.epoch_cnt)
+        pass
+        # self.Ea.save(os.path.join(self.model_save_dir, 'predict'), self.epoch_cnt)
 
     def compute_test_result(self):
         for i in range(len(self.character_names[1])):

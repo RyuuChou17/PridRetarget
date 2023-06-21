@@ -19,6 +19,8 @@ class res_block(nn.Module):
         self.edge_num = [len(topology) + 1]
         self.neighbor_list = find_neighbor(self.topologies[0], args.skeleton_dist)
         self.in_channels = self.channel_base[0] * self.edge_num[0]
+        self.hidden_channels = 128 * self.edge_num[0]
+        self.out_channels = self.in_channels
         self.joint_num = self.edge_num[0]
         self.kernel_size = args.kernel_size
         self.stride = 1
@@ -26,14 +28,18 @@ class res_block(nn.Module):
         self.padding_mode = args.padding_mode
         self.bias = True
 
+        self.create_layers()
+
     def create_layers(self):
-        self.skeleton_conv_1 = SkeletonConv(self.neighbor_list, in_channels=self.in_channels, out_channels=self.in_channels,
+        self.skeleton_conv_1 = SkeletonConv(self.neighbor_list, in_channels=self.in_channels, out_channels=self.hidden_channels,
                                             joint_num=self.joint_num, kernel_size=self.kernel_size, stride=self.stride,
                                             padding=self.padding, padding_mode=self.padding_mode, bias=self.bias)
-        self.bn_1 = nn.BatchNorm1d(self.in_channels)
+        self.bn_1 = nn.BatchNorm1d(self.hidden_channels)
         self.relu_1 = nn.ReLU()
-        self.skeleton_conv_2 = SkeletonConv()
-        self.bn_2 = nn.BatchNorm1d(self.in_channels)
+        self.skeleton_conv_2 = SkeletonConv(self.neighbor_list, in_channels=self.hidden_channels, out_channels=self.out_channels,
+                                            joint_num=self.joint_num, kernel_size=self.kernel_size, stride=self.stride,
+                                            padding=self.padding, padding_mode=self.padding_mode, bias=self.bias)
+        self.bn_2 = nn.BatchNorm1d(self.out_channels)
         self.relu_2 = nn.ReLU()
 
     def forward(self, input):

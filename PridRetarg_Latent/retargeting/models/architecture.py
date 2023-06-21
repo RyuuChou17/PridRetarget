@@ -91,8 +91,6 @@ class GAN_model(BaseModel):
         for i in range(self.n_topology):
             self.offset_repr.append(self.models[i].static_encoder(self.dataset.offsets[i]))
 
-        print("offset_repr:", len(self.offset_repr), len(self.offset_repr[0]))
-
         # reconstruct
         for i in range(self.n_topology):
             motion, offset_idx = self.motions_input[i]

@@ -2,18 +2,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.skeleton import SkeletonUnpool, SkeletonPool, SkeletonConv, find_neighbor, SkeletonLinear
-from res_block import res_block
+from models.res_block import res_block
 from models.skeleton import build_edge_topology
 
 class PredNet(nn.Module):
-    def __init__(self, args, joint_topology, device, window_size, pred_window_size):
+    def __init__(self, args, joint_topology, device):
         super(PredNet, self).__init__()
         # num of  res blocks
         self.block_num = args.block_num
         # the decay rate of predcition loss
         self.gamma = args.gamma
         # window size of input
-        self.input_window_size = window_size / 4
+        self.input_window_size = args.window_size / 4
         # window size of prediction
         self.pred_window_size = args.pred_window_size / 4
         # num of horizon
@@ -42,20 +42,24 @@ class PredNet(nn.Module):
         self.offset = offset
 
         # saperate input into horizon windows
-        self.motions_input_seq =[]
+        self.latents_input_seq =[]
+        print("pred_window_size: ", self.pred_window_size)
         for i in range(self.horizon + 1):
-            motion_temp = motions[:,:,i*self.pred_window_size:(i+1)*self.pred_window_size]
-            self.motions_input_seq.append(motion_temp)
+            latent_temp = latent[:,:,i*int(self.pred_window_size):(i+1)*int(self.pred_window_size)]
+            self.latents_input_seq.append(latent_temp)
 
     def forward(self):
+        print("horizon: ", self.horizon)
         if self.args.is_train:
             pred_list = []
             for i in range(self.horizon):
-                motion = self.motions_input_seq[i]
-                input = motion.to(self.device)
+                latent = self.latents_input_seq[i]
+                input = latent.to(self.device)
                 for module in self.res_blocks:
-                    motion = module(motion)
-                pred_list.append(motion)
+                    latent = module(latent)
+                pred_list.append(latent)
+                print("done")
+        
 
 
     def backword(self):
