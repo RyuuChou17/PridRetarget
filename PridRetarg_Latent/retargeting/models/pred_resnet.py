@@ -6,7 +6,7 @@ from models.res_block import res_block
 from models.skeleton import build_edge_topology
 
 class PredNet(nn.Module):
-    def __init__(self, args, joint_topology, device):
+    def __init__(self, args, joint_topology, joint_num, in_channels, in_offset_channel, pooling_list, device):
         super(PredNet, self).__init__()
         # num of  res blocks
         self.block_num = args.block_num
@@ -18,13 +18,17 @@ class PredNet(nn.Module):
         self.pred_window_size = args.pred_window_size / 4
         # num of horizon
         self.horizon = args.window_size // args.pred_window_size - 1
-
+        # num of joint
+        self.joint_num = joint_num
+        # in_channels
+        self.in_channels = in_channels
+        # device
         self.device = device
-
         # initial parameters of block
         self.args = args
         self.joint_topology = joint_topology
-        self.edges = build_edge_topology(joint_topology, torch.zeros((len(joint_topology), 3)))
+        self.in_offset_channel = in_offset_channel
+        self.pooling_list = pooling_list
 
         # criterion
         self.criterion = nn.MSELoss()
@@ -35,11 +39,15 @@ class PredNet(nn.Module):
     def create_layer(self):
         self.res_blocks = nn.ModuleList()
         for i in range(self.block_num):
-            self.res_blocks.append(res_block(self.args, self.edges))
+            self.res_blocks.append(res_block(self.args, self.joint_topology, self.in_channels, self.joint_num, self.in_offset_channel, self.pooling_list))
 
     def set_input(self, latent, offset=None):
         self.latent = latent
         self.offset = offset
+
+        for module in self.res_blocks:
+            module.skeleton_conv_1.set_offset(self.offset)
+            module.skeleton_conv_2.set_offset(self.offset)
 
         # saperate input into horizon windows
         self.latents_input_seq =[]

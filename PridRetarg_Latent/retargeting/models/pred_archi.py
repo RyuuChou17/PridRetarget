@@ -23,7 +23,16 @@ class Pred_model(BaseModel):
             model.load(os.path.join(self.model_save_dir, 'topology{}'.format(i)), 20000)
             self.pretrained_models.append(model)
 
-        self.latent_predictor = PredNet(args, dataset.joint_topologies[0], self.device)
+        self.offset_repr = self.pretrained_models[0].static_encoder(self.dataset.offsets[0])
+
+        # initial latent predictor
+        enc = self.pretrained_models[0].auto_encoder.enc
+        latent_topology = self.pretrained_models[0].auto_encoder.enc.topologies[args.num_layers - 1]
+        edge_num = enc.edge_num[args.num_layers - 1]
+        in_channels = enc.channel_list[args.num_layers]
+        in_offset_channel = 3 * enc.channel_base[args.num_layers - 1] // enc.channel_base[0]
+        pooling_list = enc.pooling_list[args.num_layers - 1]
+        self.latent_predictor = PredNet(args, latent_topology, edge_num, in_channels, in_offset_channel, pooling_list, self.device).to(self.device)
 
         if not self.is_train:
             import option_parser
@@ -53,14 +62,14 @@ class Pred_model(BaseModel):
         print("forward")
         motion, offset_idx = self.motions_input[0]
         motion = motion.to(self.device)
-        self.offset_repr = self.pretrained_models[0].static_encoder(self.dataset.offsets[0])
+        
 
         motion_denorm = self.dataset.denorm(0, offset_idx, motion)
         offsets = [self.offset_repr[p][offset_idx] for p in range(self.args.num_layers + 1)]
         latent, res = self.pretrained_models[0].auto_encoder(motion, offsets)
 
         # predict latent
-        self.latent_predictor.set_input(latent)
+        self.latent_predictor.set_input(latent, offsets[len(self.pretrained_models[0].auto_encoder.dec.layers) - 1])
         self.latent_predictor.forward()
 
 

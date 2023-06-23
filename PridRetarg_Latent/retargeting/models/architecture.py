@@ -94,17 +94,13 @@ class GAN_model(BaseModel):
         # reconstruct
         for i in range(self.n_topology):
             motion, offset_idx = self.motions_input[i]
-            print(offset_idx)
             motion = motion.to(self.device)
             self.motions.append(motion)
 
             motion_denorm = self.dataset.denorm(i, offset_idx, motion)
             self.motion_denorm.append(motion_denorm)
             offsets = [self.offset_repr[i][p][offset_idx] for p in range(self.args.num_layers + 1)]
-            print("motion:", motion.shape)
             latent, res = self.models[i].auto_encoder(motion, offsets)
-            print("latent", latent.shape)
-            print("res", res.shape)
             res_denorm = self.dataset.denorm(i, offset_idx, res)
             res_pos = self.models[i].fk.forward_from_raw(res_denorm, self.dataset.offsets[i][offset_idx])
             self.res_pos.append(res_pos)
