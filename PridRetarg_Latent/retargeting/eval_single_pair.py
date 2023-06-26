@@ -91,7 +91,8 @@ def main():
     model.set_input(input_motion)
     model.test()
 
-    os.system('cp "{}/{}/0_{}.bvh" "./{}"'.format(model.bvh_path, output_character_name, src_id, output_filename))
+    cmd = 'cp "{}/{}/pred.bvh" "{}"'.format(model.bvh_path, output_character_name, output_filename)
+    os.system(cmd)
 
 
 if __name__ == '__main__':

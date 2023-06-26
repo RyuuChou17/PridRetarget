@@ -23,18 +23,17 @@ class Pred_model(BaseModel):
             model.load(os.path.join(self.model_save_dir, 'topology{}'.format(i)), 20000)
             self.pretrained_models.append(model)
 
-        self.offset_repr = self.pretrained_models[0].static_encoder(self.dataset.offsets[0])
-
         # initial latent predictor
         enc = self.pretrained_models[0].auto_encoder.enc
         latent_topology = self.pretrained_models[0].auto_encoder.enc.topologies[args.num_layers - 1]
-        edge_num = enc.edge_num[args.num_layers - 1]
-        in_channels = enc.channel_list[args.num_layers]
-        in_offset_channel = 3 * enc.channel_base[args.num_layers - 1] // enc.channel_base[0]
-        pooling_list = enc.pooling_list[args.num_layers - 1]
-        self.latent_predictor = PredNet(args, latent_topology, edge_num, in_channels, in_offset_channel, pooling_list, self.device).to(self.device)
+        self.latent_predictor = PredNet(args, latent_topology, enc, self.device, self.loss_recoder).to(self.device)
+        self.predictor_para = self.latent_predictor.parameters()
 
-        if not self.is_train:
+        if self.is_train:
+            self.optimizer = optim.Adam(self.predictor_para, lr=args.learning_rate, betas=(0.9, 0.999))
+            self.criterion_latent = torch.nn.MSELoss()
+            self.criterion_rec = torch.nn.MSELoss()
+        else:
             import option_parser
             self.id_test = 0
             self.bvh_path = os.path.join(args.save_dir, 'results/bvh')
@@ -51,39 +50,83 @@ class Pred_model(BaseModel):
         self.motions_input = motions
 
         if not self.is_train:
-            self.motion_backup = []
+            self.motions_input[0][0] = motions[0][0][:,:,:self.args.pred_window_size]
             for i in range(self.n_topology):
-                self.motion_backup.append(motions[i][0].clone())
                 self.motions_input[i][0][1:] = self.motions_input[i][0][0]
                 self.motions_input[i][1] = [0] * len(self.motions_input[i][1])
 
-
     def forward(self):
-        print("forward")
+        self.offset_repr = []
+        for i in range(self.n_topology):
+            self.offset_repr.append(self.pretrained_models[i].static_encoder(self.dataset.offsets[i]))
+
         motion, offset_idx = self.motions_input[0]
         motion = motion.to(self.device)
-        
 
-        motion_denorm = self.dataset.denorm(0, offset_idx, motion)
-        offsets = [self.offset_repr[p][offset_idx] for p in range(self.args.num_layers + 1)]
-        latent, res = self.pretrained_models[0].auto_encoder(motion, offsets)
+        offsets = [self.offset_repr[0][p][offset_idx] for p in range(self.args.num_layers + 1)]
+        self.latent, _ = self.pretrained_models[0].auto_encoder(motion, offsets)
 
-        # predict latent
-        self.latent_predictor.set_input(latent, offsets[len(self.pretrained_models[0].auto_encoder.dec.layers) - 1])
-        self.latent_predictor.forward()
+        if self.args.is_train:
+            self.latent_input_seq = self.latent_predictor.set_input(self.latent, offsets[len(self.pretrained_models[0].auto_encoder.dec.layers) - 1])
+            self.latent_pred_seq = self.latent_predictor.forward()
+            self.horizon = len(self.latent_pred_seq)
 
+            # rec
+            rnd_idx = torch.randint(len(self.character_names[0]), (self.latent_pred_seq[0].shape[0],))
+            offsets = [self.offset_repr[0][p][rnd_idx] for p in range(self.args.num_layers + 1)]
+            # pose
+            self.pose_gt_seq = []
+            self.pose_pred_seq = []
+            for i in range(self.horizon):
+                # pose
+                res_gt = self.pretrained_models[0].auto_encoder.dec(self.latent_input_seq[i+1], offsets)
+                res_pred = self.pretrained_models[0].auto_encoder.dec(self.latent_pred_seq[i], offsets)
+                res_gt_denorm = self.dataset.denorm(0, rnd_idx, res_gt)
+                res_pred_denorm = self.dataset.denorm(0, rnd_idx, res_pred)
+                pose_gt = self.pretrained_models[0].fk.forward_from_raw(res_gt_denorm, self.dataset.offsets[0][offset_idx])
+                pose_pred = self.pretrained_models[0].fk.forward_from_raw(res_pred_denorm, self.dataset.offsets[0][offset_idx])
+                self.pose_gt_seq.append(pose_gt)
+                self.pose_pred_seq.append(pose_pred)
+        else:
+            # self.latent_predictor.set_input(self.latent, offsets[len(self.pretrained_models[0].auto_encoder.dec.layers) - 1])
+            # self.pred_latent = self.latent_predictor.forward(1)
+            self.pred_latent = self.latent
+            rnd_idx = list(range(self.latent.shape[0]))
+            offsets_repr = [self.offset_repr[1][p][rnd_idx] for p in range(self.args.num_layers + 1)]
+            self.res_pred = self.pretrained_models[1].auto_encoder.dec(self.latent, offsets_repr)
+            self.res_pred_denorm = self.dataset.denorm(1, rnd_idx, self.res_pred)
 
     def backward(self):
-        pass
+        # latent loss
+        latent_loss = 0
+        pose_loss = 0
+        declay_rate = 1
+        for i in range(self.horizon):
+            latent_loss_temp = self.criterion_latent(self.latent_pred_seq[i], self.latent_input_seq[i+1])
+            self.loss_recoder.add_scalar('latent_loss_{}'.format(i), latent_loss_temp.item())
+            latent_loss += latent_loss_temp * declay_rate
+
+            pos_loss_temp = self.criterion_rec(self.pose_pred_seq[i], self.pose_gt_seq[i])
+            pose_loss += pos_loss_temp * declay_rate
+            self.loss_recoder.add_scalar('pose_loss_{}'.format(i), pos_loss_temp.item())
+            declay_rate *= self.args.gamma
+
+        LOSS = latent_loss * self.args.latent_loss_lambda\
+                + pose_loss * self.args.pose_loss_lambda
+        self.loss_recoder.add_scalar('total_loss', LOSS.item())
+
+        LOSS.backward()
 
 
     def optimize_parameters(self):
         self.forward()
+        self.optimizer.zero_grad()
+        self.backward()
+        self.optimizer.step()
 
 
     def save(self):
-        pass
-        # self.Ea.save(os.path.join(self.model_save_dir, 'predict'), self.epoch_cnt)
+        self.latent_predictor.save(os.path.join(self.model_save_dir, "prednet"), self.epoch_cnt)
 
     def compute_test_result(self):
         for i in range(len(self.character_names[1])):
@@ -94,4 +137,4 @@ class Pred_model(BaseModel):
         self.id_test += 1
 
     def load(self, epoch=None):
-        self.Ea.load(os.path.join(self.model_save_dir, 'predict'), epoch)
+        self.latent_predictor.load(os.path.join(self.model_save_dir, "prednet"), epoch)

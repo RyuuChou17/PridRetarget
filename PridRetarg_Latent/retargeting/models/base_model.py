@@ -18,7 +18,8 @@ class BaseModel(ABC):
         self.is_train = args.is_train
         self.device = torch.device(args.cuda_device if (torch.cuda.is_available()) else 'cpu')
         self.model_save_dir = os.path.join(args.save_dir, 'models')  # save all the checkpoints to save_dir
-
+        self.loss_recoder = None
+        
         if self.is_train:
             from loss_record import LossRecorder
             from torch.utils.tensorboard import SummaryWriter

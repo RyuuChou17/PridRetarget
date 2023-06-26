@@ -50,13 +50,7 @@ def get_parser():
     parser.add_argument('--use_sep_ee', type=int, default=0)
     parser.add_argument('--eval_seq', type=int, default=0)
 
-    # prediction paramaters
-    parser.add_argument('--window_size', type=int, default=32, help='length of time axis per window')
-    parser.add_argument('--is_train', type=int, default=1)
-    parser.add_argument('--is_pred', type=int, default=1)
-    parser.add_argument('--pred_window_size', type=int, default=16)
-    parser.add_argument('--block_num', type=int, default=4)
-    parser.add_argument('--gamma', type=float, default=0.8)
+
     return parser
 
 

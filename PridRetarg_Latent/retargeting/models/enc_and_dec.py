@@ -115,7 +115,6 @@ class Decoder(nn.Module):
         for i, layer in enumerate(self.layers):
             if self.args.skeleton_info == 'concat':
                 self.convs[i].set_offset(offset[len(self.layers) - i - 1])
-            print(i, " input: ", input.shape)
             input = layer(input)
         # throw the padded rwo for global position
         if self.args.rotation == 'quaternion' and self.args.pos_repr != '4d':
@@ -132,7 +131,6 @@ class AE(nn.Module):
 
     def forward(self, input, offset=None):
         latent = self.enc(input, offset)
-        print("latent: ", latent.shape)
         result = self.dec(latent, offset)
         return latent, result
 
